@@ -11,7 +11,7 @@ class API {
     self.MethodQueue = []
     self.AccessTokens = tokens
     self.LastToken = 0
-    setInterval(() => self.execute(), Math.ceil(1000 / (self.AccessTokens.length * 3)) + 50)
+    setInterval(() => self.execute(), Math.ceil(1000 / (self.AccessTokens.length * 20)) + 50)
   }
 
   execute() {
