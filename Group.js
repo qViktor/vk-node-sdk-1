@@ -4,54 +4,164 @@ const http = require('http')
 const Message = require('./message')
 const Utils = require('./utils')
 const API = require('./API')
+const Scene = require('./Scene')
 const path = require('path')
+const fs = require('fs')
 
 class Group {
 
-  constructor(token, options) {
-    let self = this
-    self.API = new API(typeof token === 'object' ? token : [token])
-    self.options = options || {}
-    self.LongPollParams = false
-    self.MaxMessageId = 0
-    self.EventRegistry = []
-    self.EventCallbackRegistry = []
-    self.LastServers = {}
-    self.Members = []
-    self.Id = 0
-    self.TypingStatus = Function()
-    self.TypingTimers = {}
-    self.CallbackRegistry = {}
-    self.API.api('groups.getById', {fields: 'photo_50'}, (group, error) => {
-      if (!group || !group.length) throw new Error('error group token')
-      group = group[0]
-      self.Id = parseInt(group.id)
-      setInterval(() => self.executeMember(self.Id), 1000)
-      setInterval(() => self.LastServers = {}, 18000 * 1000)
-      self.longPoll()
-      if (self.options.webhook && self.options.webhook.url) self.startServer(self.options.webhook)
-    })
-  }
+    constructor(token, options) {
+        let self = this
+        self.API = new API(typeof token === 'object' ? token : [token])
+        self.options = options || {}
+        self.LongPollParams = false
+        self.MaxMessageId = 0
+        self.EventRegistry = []
+        self.EventCallbackRegistry = []
+        self.LastServers = {}
+        self.Members = []
+        self.Id = 0
+        self.TypingTimers = {}
+        self.CallbackRegistry = {}
+        self.Scenarios = {}
+        self.API.api('groups.getById', {fields: 'photo_50'}, (group, error) => {
+            if (!group || !group.length) return
+            group = group[0]
+            self.Id = parseInt(group.id)
+            setInterval(() => {
+                self.executeMember(self.Id)
+            }, 600)
+            if (self.options.longPoll !== false) {
+            	self.API.longPoll()
+            }
+            if (self.options.webhook && self.options.webhook.url) {
+            	self.startServer(self.options.webhook)
+            }
+        })
+    }
 
-  executeMember(group_id) {
-    let self = this
-    if (!self.Members.length) return
-    let items = self.Members.slice(0, 500)
-    self.Members = self.Members.slice(500)
-    self.api('groups.isMember', {user_ids: items.join(','), group_id: group_id}, (data, error) => {
-      for (var i = data.length - 1; i >= 0; i--) {
-        let key = 'isMember' + data[i].user_id
-        if (self.CallbackRegistry[key]) self.CallbackRegistry[key](data[i].member)
-      }
-    })
-  }
+    widgetsGroupImageUpload(file, callback, params = {}, attempt = 0) {
+        let self = this
+        attempt++
+        if (attempt > 6) {
+            return callback(false)
+        }
+        if (!params.image_type) {
+            params.image_type = '510x128'
+        }
+        if (typeof file === 'string') {
+            if (file.startsWith('http:') || file.startsWith('https:')) {
+                Utils.getBuffer(file, {}, (buffer, response) => {
+                    if (buffer) {
+                        self.widgetsGroupImageUpload({
+                            buffer: buffer, 
+                            mimetype: response.headers['content-type'],
+                            filename: 'file.' + response.headers['content-type'].split(/\//)[1]
+                        }, callback, params)
+                    } else {
+                        callback(false)
+                    }
+                })
+            } else {
+                let ext = path.extname(file).replace(/\./g, '')
+                self.widgetsGroupImageUpload({
+                    file: file, 
+                    mimetype: 'image/' + ext,
+                    filename: 'file.' + ext
+                }, callback, params)
+            }
+            return
+        }
+        self.api('appWidgets.getGroupImageUploadServer', params, (data, error) => {
+            if (data && data.upload_url) {
+                Utils.upload(data.upload_url, {image: file}, (upload, response) => {
+                    try {
+                        upload = JSON.parse(upload)
+                        if (upload.image) {
+                            self.api('appWidgets.saveGroupImage', upload, (data, error) => {
+                                callback(data, error)
+                            })
+                        } else {
+                            callback(false)
+                        }
+                    } catch(e) {
+                        callback(false)
+                    }
+                })
+            } else {
+                callback(false)
+            }
+        })
+    }
+
+    docsSearch(q = '', callback, count = 100, offset = 0) {
+        this.API.docsSearch(q, callback, count, offset)
+    }
+
+    getVKTime(callback) {
+        this.API.getVKTime(callback)
+    }
+
+    shortLink(url, callback, is_private) {
+        this.API.shortLink(url, callback, is_private)
+    }
+
+    createScene(triggered) {
+        let self = this
+        return new Scene(() => {
+            return self
+        }, triggered)
+    }
+
+    sendToIds(peer_ids, text, attachment) {
+    	text = text || ''
+    	attachment = attachment || ''
+    	let self = this
+    	let ids = peer_ids.slice(0, 100)
+        peer_ids = peer_ids.slice(100)
+        self.api('messages.send', {message: text, attachment: attachment, user_ids: ids})
+        if (peer_ids.length > 0) {
+            self.sendToIds(peer_ids)
+        }
+    }
+
+    userGet(user_id, callback) {
+    	this.API.userGet(user_id, callback)
+    }
+
+    messageGet(message_id, callback) {
+    	this.API.messageGet(message_id, callback)
+    }
+
+    message(peer_id) {
+        this.API.message(peer_id)
+    }
+
+    setTyping(peer_id) {
+        this.api('messages.setActivity', {type: 'typing', peer_id: peer_id})
+    }
+
+    onTypingStatusChange(callback) {
+        this.API.onTypingStatusChange(callback)
+    }
+
+    executeMember(group_id) {
+        let self = this
+        if (!self.Members.length) return
+        let items = self.Members.slice(0, 500)
+        self.Members = self.Members.slice(500)
+        self.api('groups.isMember', {user_ids: items.join(','), group_id: group_id}, (data, error) => {
+            for (var i = 0; i < data.length; i++) {
+                let key = 'isMember' + data[i].user_id
+                if (self.CallbackRegistry[key]) self.CallbackRegistry[key](data[i].member)
+            }
+        })
+    }
 
     isMember(user_id, callback) {
         let self = this
         let key = 'isMember' + user_id
-        if (self.Members.indexOf(user_id) == -1) {
-            self.Members.push(user_id)
-        }
+        if (self.Members.indexOf(user_id) == -1) self.Members.push(user_id)
         let timerId = setTimeout(() => { 
             callback(false)
             if (self.CallbackRegistry[key]) delete self.CallbackRegistry[key]
@@ -65,19 +175,8 @@ class Group {
 
     startServer(webhook) {
         let self = this
-        if (!webhook.group_id || !webhook.secret_key || !webhook.confirmation) {
-            return self.api('execute', {code: 'var group_id = API.groups.getById()[0].id;return {group_id: group_id, secret_key: API.groups.getCallbackServerSettings({group_id: group_id}).secret_key, confirmation: API.groups.getCallbackConfirmationCode({group_id: group_id}).code};'}, (data, error) => {
-                if (data && data.group_id) {
-                    webhook.group_id = data.group_id
-                    webhook.secret_key = data.secret_key
-                    webhook.confirmation = data.confirmation
-                    webhook.from_api = true
-                    self.startServer(webhook)
-                } else {
-                    throw new Error(JSON.stringify(data))
-                }
-            })
-        }
+        let confingFile = './callback_server.json'
+        webhook.config = Utils.jsonFromFile(confingFile)
         let server = http.createServer((request, response) => {
             var chunks = []
             request.on('data', (chunk) => {
@@ -86,20 +185,25 @@ class Group {
             request.on('end', () => {
                 try {
                     let json = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
-                    if (!(json.group_id && json.group_id == webhook.group_id && json.type)) {
+                    if (!json.type || !json.group_id) {
                         response.writeHead(502, {'Content-Type': 'text/plain'})
                         response.end('Required parameters are not found')
                         return
                     }
                     if (json.type == 'confirmation') {
-                        response.writeHead(200, {'Content-Type': 'text/plain'})
-                        response.end(webhook.confirmation)
+                        self.api('groups.getCallbackConfirmationCode', {group_id: json.group_id}, (data, error) => {
+                            response.writeHead(200, {'Content-Type': 'text/plain'})
+                            response.end(data.code || JSON.stringify(error))
+                        })
                         return
                     }
-                    if (webhook.secret_key && !(json.object && json.secret && json.secret == webhook.secret_key)) {
+                    if (webhook.config && webhook.config.secret_key && !(json.object && json.secret && json.secret == webhook.config.secret_key)) {
                         response.writeHead(200, {'Content-Type': 'text/plain'})
                         response.end('Secret key is not valid')
                         return
+                    }
+                    if (json.type == 'message_new' || json.type == 'message_reply') {
+                        self.pushMessage(json.object)
                     }
                     let stack = self.EventCallbackRegistry
                     if (stack.length > 0) {
@@ -116,184 +220,38 @@ class Group {
                     response.writeHead(200, {'Content-Type': 'text/plain'})
                     response.end('ok')
                 } catch(e) {
-                    console.log(e)
                     response.writeHead(200, {'Content-Type': 'text/plain'})
-                    response.end('ok')
+                    response.end('error')
                 }
             })
         })
         server.listen((webhook.port || 80), () => {
-            if (!webhook.from_api) return
-            setTimeout(function() {
-                self.setCallbackServer(webhook.group_id, webhook.url, (response) => {
-                    if (!response) {
-                        throw new Error('Не удалось установить callback сервер автоматически. Попробуйте установить его вручную.')
-                    }
-                })
-            }, 1000)
-        })
-    }
-
-    setCallbackServer(group_id, server_url, callback, attempt) {
-        let self = this
-        attempt = attempt || 0
-        attempt++
-        if (attempt > 10) return callback(false)
-        self.api('groups.setCallbackServer', {group_id: group_id, server_url: server_url}, (response, error) => {
-            if (response) {
-                switch(response.state_code) {
-                    case 1:
-                        callback(true)
-                        break
-                    case 2:
-                        setTimeout(function() {
-                            self.setCallbackServer(group_id, server_url, callback, attempt)
-                        }, 500)
-                        break
-                    default:
-                        callback(false)
-                        break
+            let executeCode = 'var group_id = API.groups.getById()[0].id;var callbackURL = Args.server_url;var server_id = Args.server_id;var json = {};if (server_id == 0) {server_id = API.groups.addCallbackServer({url: callbackURL, title: "vk-node-sdk", group_id: group_id});json = API.groups.getCallbackServers({group_id:group_id,server_ids:server_id}).items[0];} else {json = API.groups.getCallbackServers({group_id:group_id,server_ids:server_id}).items[0];}if (json == null) {server_id = API.groups.addCallbackServer({url: callbackURL, title: "vk-node-sdk", group_id: group_id});json = API.groups.getCallbackServers({group_id:group_id,server_ids:server_id}).items[0];}json.code = API.groups.getCallbackConfirmationCode({group_id:group_id}).code;return json;'
+            self.api('execute', {code: executeCode, server_url: webhook.url, server_id: (webhook.config ? webhook.config.id : 0)}, (data, error) => {
+                if (data) {
+                    Utils.jsonToFile(confingFile, data)
+                } else {
+                    throw new Error(JSON.stringify(error))
                 }
-            } else {
-                self.setCallbackServer(group_id, server_url, callback, attempt)
-            }
+            })
         })
     }
 
     photoUpload(peer_id, file, callback, attempt) {
-        let self = this
-        attempt = attempt || 0
-        attempt++
-        if (attempt > 5) return callback(false)
-        let key = 'photo' + peer_id
-        if (self.LastServers[key]) {
-            Utils.upload(self.LastServers[key], {photo: file}, (upload, response) => {
-                if (!upload) {
-                    delete self.LastServers[key]
-                    return self.photoUpload(peer_id, file, callback, attempt)
-                }
-                try {
-                    upload = JSON.parse(upload)
-                    self.api('photos.saveMessagesPhoto', upload, (save, error) => {
-                        if (save && save.length) {
-                            callback(save[0])
-                        } else {
-                            callback(false)
-                        }
-                    })
-                } catch(e) {
-                    delete self.LastServers[key]
-                    return self.photoUpload(peer_id, file, callback, attempt)
-                }
-            })
-        } else {
-            self.api('photos.getMessagesUploadServer', {peer_id: peer_id}, (data, error) => {
-                if (!(data && data.upload_url)) return callback(false)
-                self.LastServers[key] = data.upload_url
-                self.photoUpload(peer_id, file, callback, attempt)
-            })
-        }
+    	this.API.photoUpload(peer_id, file, callback, attempt)
     }
 
-
     docUpload(peer_id, file, callback, type, attempt) {
-        let self = this
-        attempt = attempt || 0
-        attempt++
-        if (attempt > 5) return callback(false)
-        let key = 'doc' + peer_id + '_' + (type || 'file')
-        if (self.LastServers[key]) {
-            Utils.upload(self.LastServers[key], {file: file}, (upload, response) => {
-                if (!(upload && response.headers['content-type'].startsWith('application/json'))) {
-                    delete self.LastServers[key]
-                    return self.docUpload(peer_id, file, callback, type, attempt)
-                }
-                upload = JSON.parse(upload)
-                if (!upload.file) {
-                    delete self.LastServers[key]
-                    return self.docUpload(peer_id, file, callback, type, attempt)
-                }
-                self.api('docs.save', upload, (save, error) => {
-                    if (save && save.length) {
-                        callback(save[0])
-                    } else {
-                        callback(false)
-                    }
-                })
-            })
-        } else {
-            let params = {
-                peer_id: peer_id
-            }
-            if (type) {
-                params.type = type
-            }
-            self.api('docs.getMessagesUploadServer', params, (data, error) => {
-                if (!(data && data.upload_url)) return callback(false)
-                self.LastServers[key] = data.upload_url
-                self.docUpload(peer_id, file, callback, type, attempt)
-            })
-        }
+    	this.API.docUpload(peer_id, file, callback, type, attempt)
     }
 
     coverUpload(file, callback, params) {
-        let self = this
-        callback = callback || Function()
-        params = params || {crop_x2: 1590, crop_y2: 400}
-        if (!params.group_id) params.group_id = self.Id
-        if (typeof file === 'string') {
-            if (file.startsWith('http:') || file.startsWith('https:')) {
-                Utils.getBuffer(file, {}, (buffer, response) => {
-                    if (buffer) {
-                        self.coverUpload({
-                            buffer: buffer, 
-                            mimetype: response.headers['content-type'],
-                            filename: 'file.' + response.headers['content-type'].split(/\//)[1]
-                        }, callback, params)
-                    } else {
-                        callback(false)
-                    }
-                })
-            } else {
-                let ext = path.extname(file)
-                self.coverUpload({
-                    file: file, 
-                    mimetype: 'image/' + ext,
-                    filename: 'file.' + ext
-                }, callback, params)
-            }
-            return
-        }
-        self.api('photos.getOwnerCoverPhotoUploadServer', params, (data, error) => {
-            if (error) callback(false, error)
-            Utils.upload(data.response.upload_url, {photo: file}, (upload, response) => {
-                try {
-                    upload = JSON.parse(upload)
-                    if (upload.photo) {
-                        self.api('photos.saveOwnerCoverPhoto', upload, (save, error) => {
-                            if (save.response) save = save.response
-                            callback(save, error)
-                        })
-                    } else {
-                        callback(false, upload)
-                    }
-                } catch(e) {
-                    callback(false, e)
-                }
-            })
-        })
-    }
-
-    use(callback) {
-        this.EventRegistry.push(callback)
-    }
-
-    onTypingStatusChange(callback) {
-        this.TypingStatus = callback
+        this.API.coverUpload(self.Id, file, callback, params)
     }
 
     onCallBackEvent(event, callback) {
-        this.EventCallbackRegistry.push((json, next) => {
+        let self = this
+        self.EventCallbackRegistry.push((json, next) => {
             if (typeof event === 'string' && json.type == event) {
                 callback(json.object)
             } else if (event.indexOf(json.type) >= 0) {
@@ -304,227 +262,104 @@ class Group {
         })
     }
 
-    onMessagePhoto(callback) {
-        this.use((message, next) => {
-            if (message.isPhotoMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+    onUse(callback) {
+        this.API.onUse(callback)
     }
 
-    onMessageAudio(callback) {
-        this.use((message, next) => {
-            if (message.isAudioMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+    onMessageForward(callback) {
+        this.API.onMessageForward(callback)
+    }
+
+    onMessageGift(callback) {
+        this.API.onMessageGift(callback)
+    }
+
+    onMessageWallReply(callback) {
+        this.API.onMessageWallReply(callback)
+    }
+
+    onMessageWall(callback) {
+        this.API.onMessageWall(callback)
+    }
+
+    onMessageMarketAlbum(callback) {
+        this.API.onMessageMarketAlbum(callback)
+    }
+
+    onMessageMarket(callback) {
+        this.API.onMessageMarket(callback)
+    }
+
+    onMessageLink(callback) {
+        this.API.onMessageLink(callback)
+    }
+
+    onMessageVideo(callback) {
+        this.API.onMessageVideo(callback)
+    }
+
+    onMessageMap(callback) {
+        this.API.onMessageMap(callback)
+    }
+
+    onChatDelete(callback) {
+        this.API.onChatDelete(callback)
+    }
+
+    onChatInvite(callback) {
+        this.API.onChatInvite(callback)
+    }
+
+    onChatTitleChange(callback) {
+        this.API.onChatTitleChange(callback)
+    }
+
+    onChatPhotoChange(callback) {
+        this.API.onChatPhotoChange(callback)
+    }
+
+    onMessagePhoto(callback) {
+        this.API.onMessagePhoto(callback)
+    }
+
+    onMessageVoice(callback) {
+        this.API.onMessageVoice(callback)
     }
 
     onMessageGif(callback) {
-        this.use((message, next) => {
-            if (message.isGifMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+        this.API.onMessageGif(callback)
     }
 
     onMessageDoc(callback) {
-        this.use((message, next) => {
-            if (message.isDocMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+        this.API.onMessageDoc(callback)
     }
 
     onMessageMusic(callback) {
-        this.use((message, next) => {
-            if (message.isMusicMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+        this.API.onMessageMusic(callback)
     }
 
     onMessageSticker(callback) {
-        this.use((message, next) => {
-            if (message.isStickerMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+        this.API.onMessageSticker(callback)
     }
 
     onMessageText(callback) {
-        this.use((message, next) => {
-            if (message.isTextMessage()) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+        this.API.onMessageText(callback)
     }
 
-    onMessage(callback) {
-        this.use((message, next) => {
-            callback(message)
-        })
+    onMessage(callback) {   
+        this.API.onMessage(callback)
     }
 
     onCommand(command, callback) {
-        this.use((message, next) => {
-            if (!message.isTextMessage()) return next()
-            let body = message.body.toLowerCase()
-            if (typeof command === 'string' && body.startsWith(command.toLowerCase())) {
-                callback(message)
-            } else if (command.indexOf(body) >= 0) {
-                callback(message)
-            } else {
-                next()
-            }
-        })
+        this.API.onCommand(command, callback)
     }
 
-    pushMessage(json) {
-        let self = this
-        let key = 'typing' + json.user_id
-        if (self.TypingTimers[key]) {
-            clearTimeout(self.TypingTimers[key])
-            self.TypingStatus(json.user_id, false)
-            delete self.TypingTimers[key]
-        }
-        let stack = self.EventRegistry
-        if (stack.length == 0) return
-        if (json.id > self.MaxMessageId) self.MaxMessageId = json.id
-        let message = new Message(self, json)
-        var index = 0
-        let notify = () => {
-            if (index >= stack.length) return
-            stack[index](message, () => {
-                index++
-                notify()
-            })
-        }
-        notify()
-    }
-
-    pushTyping(user_id, type) {
-        let self = this
-        let key = 'typing' + user_id
-        self.TypingStatus(user_id, true)
-        let timerId = setTimeout(() => { 
-            self.TypingStatus(user_id, false)
-            delete self.TypingTimers[key]
-        }, 4000)
-        self.TypingTimers[key] = timerId
-    }
-
-    longPoll() {
-        let self = this
-        if (!self.LongPollParams) {
-            self.api('messages.getLongPollServer', {need_pts: 1, lp_version: 2}, (data, error) => {
-                if (error) throw new Error('Access denied: group messages are disabled')
-                self.LongPollParams = data
-                self.longPoll()
-            })
-            return
-        }
-        let params = {
-            act: 'a_check', 
-            key: self.LongPollParams.key,
-            ts: self.LongPollParams.ts,
-            wait: 25,
-            mode: (128 + 32 + 2),
-            version: 2
-        }
-        Utils.get('https://' + self.LongPollParams.server, params, (data, response) => {
-            if (data && response && response.headers['content-type'].startsWith('text/javascript')) {
-                data = JSON.parse(data)
-                if (data.pts) {
-                    self.LongPollParams.pts = data.pts
-                }
-                if (data.ts) {
-                    self.LongPollParams.ts = data.ts
-                } else {
-                    self.getLongPollHistory(self.LongPollParams.ts, self.LongPollParams.pts)
-                    self.LongPollParams = false
-                }
-                self.longPoll()
-                if (!data.updates) return
-                let messages_ids = []
-                for (var i = data.updates.length - 1; i >= 0; i--) {
-                    let update = data.updates[i]
-                    if (update[0] == 61) {
-                        self.pushTyping(update[1], update[2])
-                        continue
-                    }
-                    if (update[0] != 4 || (update[2] & 2) != 0) continue
-                    let attachments = update.length >= 6 ? update[6] : {}
-                    if (attachments.attach1_type || attachments.fwd || attachments.geo || attachments.geo) {
-                        messages_ids.push(update[1])
-                    } else {
-                        self.pushMessage({
-                            id: update[1],
-                            date: update[4],
-                            out: 0,
-                            user_id: update[3],
-                            read_state: 0,
-                            title: attachments.title || ' ... ',
-                            body: update[5].replace(/<br>/g, ' '),
-                            emoji: attachments.emoji || 0
-                        })
-                    }
-                }
-                if (!messages_ids.length) return
-                self.api('messages.getById', {message_ids: messages_ids.join(',')}, (data, error) => {
-                    if (!data || !data.items) return
-                    for (var i = data.items.length - 1; i >= 0; i--) {
-                        self.pushMessage(data.items[i])
-                    }
-                })
-            } else {
-                self.getLongPollHistory(self.LongPollParams.ts, self.LongPollParams.pts)
-                self.LongPollParams = false
-                self.longPoll()
-            }
-        })
-    }
-
-    getLongPollHistory(ts, pts) {
-        let self = this
-        self.api('messages.getLongPollHistory', {ts: ts, pts: pts, max_msg_id: self.MaxMessageId}, (data, error) => {
-            if (data && data.messages) {
-                let items = data.messages.items
-                for (var i = items.length - 1; i >= 0; i--) {
-                    self.pushMessage(items[i])
-                }
-            }
-        })
+    onTypingStatusChange(callback) {
+        this.API.onTypingStatusChange(callback)
     }
 
     sendMessage(params, callback) {
-        let self = this
-        callback = callback || Function()
-        var to_id = params.peer_id || params.user_id || params.chat_id
-        if (!params.random_id) {
-            params.random_id = Utils.rand() + '' + to_id + '' + Utils.time()
-        }
-        self.api('messages.send', params, (id, error) => {
-            if (parseInt(id) >= 1) {
-                callback(parseInt(id), error)
-            } else {
-                callback(false, error)
-            }
-        })
+        this.API.sendMessage(params, callback)
     }
 
     api(method, params, callback) {
@@ -534,11 +369,13 @@ class Group {
             if (self.Id != 0) {
                 params.group_id = self.Id
             } else {
-                return setTimeout(() => self.api(method, params, callback), 500)
+                return setTimeout(() => self.api(method, params, callback), 350)
             }
         }
         return self.API.api(method, params, (data, error) => {
-            if (data && data.response) data = data.response
+            if (data && data.response) {
+                data = data.response
+            }
             callback(data, error)
         })
     }

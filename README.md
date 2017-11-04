@@ -1,5 +1,5 @@
 # vk-node-sdk
-Библиотека для работы с [VK API](https://vk.com/dev) для сообществ и пользователей. Прежде чем начать использование библиотеки, получите access_token для пользователя или сообщества как описано [тут](https://vk.com/dev/access_token). Создайте сообщество на [этой](https://vk.com/groups) странице если оно ещё не создано.
+Библиотека для работы с [VK API](https://vk.com/dev) для сообществ, пользователей и приложений. Прежде чем начать использование библиотеки, получите access_token для пользователя,сообщества или приложения как описано [тут](https://vk.com/dev/access_token). Создайте сообщество на [этой](https://vk.com/groups) странице если оно ещё не создано или приложение [тут](https://vk.com/apps?act=manage)
 
 #### Главные преимущества этой библиотеки
 
@@ -9,9 +9,13 @@
 
 - Возможность отправки медиа-вложения из URL.
 
+- Возможность создания сценариев вопросов и ответов 
+
 - Разделение сообщении по типу (только с текстом/с фото/с документом).
 
 - Получение и обработка событий из [Callback API](https://vk.com/dev/callback_api) + автоматическая настройка сервера [Callback API](https://vk.com/dev/callback_api).
+
+- Удобная работа с [Streaming API](https://vk.com/dev/streaming_api)
 
 # Установка
 ```
@@ -26,20 +30,27 @@ npm install vk-node-sdk
 const VK = require('vk-node-sdk')
 const Group = new VK.Group('GROUP_TOKEN') // Подробнее: https://vk.com/dev/access_token
 
-Group.onCommand('пинг', (message) => {
-  message.addText('понг').send()
+Group.onMessage((message) => {
+  console.log('new message', message.toJSON())
+  message.setTyping() // Отправляем статус "печатает"
+  switch(message.body) {
+    case 'пинг':
+      message.addText('понг').send()
+      break
+    case 'фото':
+      message.addPhoto('https://vk.com/images/gift/875/256_1.jpg').send()
+      break
+    case 'документ':
+      message.addPhoto('http://vk.com/images/gift/875/256.mp4').send()
+      break
+    case 'ответ':
+      message.addText('сообщение').addForward(message.id).send()
+      break
+  }
 })
 
-Group.onCommand('фото', (message) => {
-  message.addPhoto('https://vk.com/images/gift/875/256_1.jpg').send()
-})
-
-Group.onCommand('документ', (message) => {
-  message.addPhoto('http://vk.com/images/gift/875/256.mp4').send()
-})
-
-Group.onCommand('ответ', (message) => {
-  message.addText('сообщение').addForward(message.id).send()
+Group.onCommand('/help', (message) => { // Пример использование комманды
+  message.addText('Это тестовый бот для проверки библиотеки vk-node-sdk.').send()
 })
 ```
 
@@ -47,15 +58,81 @@ Group.onCommand('ответ', (message) => {
 
 ![](https://raw.githubusercontent.com/AntDev95/vk-node-sdk/master/ChatScreen.png)
 
+### Пример голосового бота:
+
+В этом примере используется синтезатор речи от Yandex.
+Для этого нужо получить **бесплатный** ключ для использования Yandex SpeechKit Cloud 
+Подробнее тут: https://tech.yandex.ru/speechkit/cloud/
+
+В примере показано как загружать файлы на ВК с внешних ресурсов не сохраняя их у себя на сервере.
+
+Так же показано как загружать mp3 или wav файл как аудио сообщение на ВКонтакте.
+
+```javascript
+const VK = require('vk-node-sdk')
+const Group = new VK.Group('GROUP_TOKEN')
+
+/**
+ * Бесплатный ключ Yandex SpeechKit Cloud
+ * Получить тут: developer.tech.yandex.ru/keys/ и вставить в эту переменную
+ */
+const YANDEX_KEY = 'f2cf48cd-7f44-4e56-a8ca-60c7dc3381d9'
+
+
+/**
+ * Получаем все сообщения которые содержат текст
+ */
+Group.onMessageText((message) => {
+  if (message.body.length > 200) {
+    message.addText('В сообщении должно быть не больше 200 символов').send()
+  } else {
+    message.setTyping()
+    /**
+     * Выполняем запрос к Yandex API
+     */
+    VK.Utils.getBuffer('https://tts.voicetech.yandex.net/generate', {text: message.body, format: 'mp3', lang: 'ru', speaker: 'zahar', key: YANDEX_KEY}, (buffer, response) => {
+        /**
+         * Получем данные и проверяем заголовки
+         * content-type: audio/mpeg - значить что Yandex API вернул аудиофайл в ответ
+         * Создаем объект файла и загружаем голосовое сообщение на ВК
+         */
+        if (response && response.headers['content-type'] == 'audio/mpeg') {
+          let file = { // Создаем объект файла
+              buffer: buffer, // buffer - полученное аудио c Yandex API
+              filename: 'file.mp3', // имя файла, например: file.wav
+              mimetype: 'audio/mpeg' // mimetype файла, для аудио - audio/mpeg. Список: vk.cc/70vqHm
+            }
+            /**
+             * Первый аргумент (file) наш объект файла
+             * Второй аргумент ('file_name') название файла на ВК
+             */
+          message.addVoice(file, 'file_name.mp3').send()
+        } else {
+          message.addText('Упс, не удалось озвучить текст').send()
+        }
+      })
+  }
+})
+
+
+/**
+ * Все остальные сообщения которые мы не обрабатываем
+ * Например сообщения с фото
+ */
+Group.onMessage((message) => {
+  message.addText('Пришли мне текстовое сообщение').send()
+})
+```
+
 Или пример с получением новых комментариев и автоматическое удаление комментариев от сообществ:
 
 ```javascript
 const VK = require('vk-node-sdk')
 
-const User = new VK.User(process.env.USER_TOKEN)
-const Group = new VK.Group(process.env.GROUP_TOKEN, {
+const User = new VK.User('USER_TOKEN')
+const Group = new VK.Group('GROUP_TOKEN', {
   webhook: {
-    url: process.env.SERVER_URL,
+    url: 'http://SERVER_IP/callback',
     port: 80
   }
 })
@@ -79,19 +156,24 @@ Bot.onCallBackEvent('wall_reply_new', (comment) => {
 const VK = require('vk-node-sdk')
 
 // Для сообщества с указанием Callback сервера
-const Group = new VK.Group(process.env.GROUP_TOKEN, {
+const Group = new VK.Group('GROUP_TOKEN', {
   webhook: {
-    url: process.env.SERVER_URL,
+    url: 'http://SERVER_IP/callback',
     port: 80
   }
 })
 
 // Для пользователя
 const User = new VK.User('USER_TOKEN')
+
+// Для приложения
+const App = new VK.App('APP_TOKEN')
 ```
 
 *Если вы используете другой порт для Callback сервера, настройте его проксирование через ваш веб-сервер. Документация для
 [Nginx](http://nginx.org/ru/docs/http/ngx_http_proxy_module.html) и [Apache](https://httpd.apache.org/docs/2.4/mod/mod_proxy.html#proxypass)*
+
+[Подробнее о настройке callback сервера с помощью nginx на ubuntu](https://github.com/AntDev95/vk-node-sdk/wiki/Настройка-Callback-API-сервера)
 
 # Объект VK.Group
 Этот объект предназначен для работы с VK API от имени сообщества.
@@ -113,6 +195,11 @@ const User = new VK.User('USER_TOKEN')
 - [Group.photoUpload(peer_id, file, callback)](#groupphotouploadpeer_id-file-callback)
 - [Group.docUpload(peer_id, file, callback, type)](#groupdocuploadpeer_id-file-callback-type)
 - [Group.coverUpload(file, callback, params)](#groupcoveruploadfile-callback-params)
+- [Group.messageGet(message_id, callback)](#groupmessagegetmessage_id-callback)
+- [Group.userGet(user_id, callback)](#groupusergetuser_id-callback)
+- [Group.message(user_id)](#groupmessageuser_id)
+- [Group.setTyping(peer_id)](#groupsettypingpeer_id)
+- [Group.sendToIds(peer_ids, text, attachment)](#groupsendtoidspeer_ids-text-attachment)
 
 ### Group.onMessage(callback)
 Позволяет получать все новые входящие сообщения в сообщество.
@@ -131,13 +218,25 @@ Group.onMessage((message) => {
 
 ##### Так же есть методы для получения сообщений определенных типов:
 
+*Методы *
+
 - **Group.onMessagePhoto(callback)** Только сообщения с фото
 - **Group.onMessageText(callback)** Только сообщения с текстом
 - **Group.onMessageSticker(callback)** Только сообщение со стикером
 - **Group.onMessageMusic(callback)** Только сообщение с музыкой
 - **Group.onMessageDoc(callback)** Только сообщение с документом
 - **Group.onMessageGif(callback)** Только сообщение с анимацией
-- **Group.onMessageAudio(callback)** Только голосовые сообщения
+- **Group.onMessageVoice(callback)** Только голосовые сообщения
+- **Group.onMessageMap(callback)** Только сообщения с картой/локацией
+- **Group.onMessageVideo(callback)** Только сообщения с видео
+- **Group.onMessageLink(callback)** Только сообщения c объектом ссылки
+- **Group.onMessageMarket(callback)** Только сообщение с товаром
+- **Group.onMessageMarketAlbum(callback)** Только сообщение c альбом товаров
+- **Group.onMessageWall(callback)** Только сообщение с объектом записи на стене
+- **Group.onMessageWallReply(callback)** Только сообщение с комментарием
+- **Group.onMessageGift(callback)** Только сообщение с подарком
+- **Group.onMessageForward(callback)** Только пересланные сообщения
+- **Group.onChatTitleChange(callback)** Событие об изменении названия беседы
 
 ##### Например получать сообщения только c фото:
 ```javascript
@@ -199,7 +298,7 @@ Group.onCommand(['/start', '!start'], (message) => {
 ##### Пример:
 ```javascript
 Group.onTypingStatusChange((user_id, is_typing) => {
-  console.log(`${user_id} - ${is_typing ? 'начал' : 'закончил'} печатать`)
+  console.log(user_id + ' - ' + (is_typing ? 'начал' : 'закончил') + ' печатать')
 })
 ```
 
@@ -226,16 +325,16 @@ Group.onCallBackEvent('wall_reply_new', (comment) => {
 | ------------- | ------------- | ------------- | ------------- |
 | method | string | Да | Название метода |
 | params | object | Да | Параметры метода |
-| callback | function | Нет | callback функция. Возвращает результат выполнения метода или *false* если метод выполнить не удалось |
+| callback | function | Нет | callback функция. Первый аргумент возвращает результат выполнения метода или *false* если метод выполнить не удалось. Второй аргумент возвращает объект ошибки (https://vk.com/dev/errors) если метод выполнить не удалось. |
 
 ##### Пример:
 ```javascript
-Group.api('groups.getById', {fields: 'members_count'}, (data) => {
-  if (!data) {
-     console.log('Ошибка выполнения метода')
+Group.api('groups.getById', {fields: 'members_count'}, (data, error) => {
+  if (error) {
+     console.log('Ошибка выполнения метода', error)
   } else {
      console.log(data)
-     console.log(`Участников в сообществе: ${data[0].members_count}`)
+     console.log('Участников в сообществе:', data[0].members_count)
   }
 })
 ```
@@ -270,11 +369,11 @@ Group.isMember(225818028, (isSubscriber) => {
 
 ##### Пример:
 ```javascript
-Group.sendMessage({user_id: 225818028, message: 'Привет!'}, (messageId) => {
+Group.sendMessage({user_id: 225818028, message: 'Привет!'}, (messageId, error) => {
   if (messageId) {
-     console.log('Сообщение отправлено!\n message_id: ' + messageId)
+     console.log('Сообщение отправлено!\n message_id: ', messageId)
   } else {
-     console.log('не удалось отправить сообщение')
+     console.log('Не удалось отправить сообщение', error)
   }
 })
 ```
@@ -342,7 +441,114 @@ Group.docUpload(225818028, file, (doc) => {
 Group.coverUpload('./images/cover.png')
 ```
 
+### Group.messageGet(message_id, callback)
+
+Позволяет получить сообщения по его идентификатору.
+
+| Параметр  | Тип | Обязательный | Описание |
+| ------------- | ------------- | ------------- | ------------- |
+| message_id | integer | Да | Идентификатор сообщения |
+| callback | function | Да | callback функция. Возвращает объект сообщения (https://vk.com/dev/objects/message) или *false* если сообщение получить не удалось |
+
+##### Пример:
+```javascript
+Group.messageGet(1, (message_object) => {
+  console.log(message_object)
+})
+```
+
+### Group.userGet(user_id, callback)
+
+Получает информацию о пользователе по его идентификатору.
+
+| Параметр  | Тип | Обязательный | Описание |
+| ------------- | ------------- | ------------- | ------------- |
+| user_id | integer | Да | Идентификатор пользователя |
+| callback | function | Да | callback функция. Возвращает объект пользователя (https://vk.com/dev/objects/user) или *false* если метод выполнить не удалось |
+
+##### Пример:
+```javascript
+Group.userGet(225818028, (user) => {
+  console.log('Пользователь - ', user.first_name)
+})
+```
+
+### Group.message(user_id)
+
+Создает объект сообщения.
+
+| Параметр  | Тип | Обязательный | Описание |
+| ------------- | ------------- | ------------- | ------------- |
+| user_id | integer | Да | Идентификатор получателя |
+
+##### Пример:
+```javascript
+Group.message(225818028).addText('Привет!').send()
+```
+
+### Group.setTyping(peer_id)
+
+Отправляет статус "печатает".
+
+| Параметр  | Тип | Обязательный | Описание |
+| ------------- | ------------- | ------------- | ------------- |
+| peer_id | integer | Да | Идентификатор получателя |
+
+##### Пример:
+```javascript
+Group.setTyping(225818028)
+```
+
+### Group.sendToIds(peer_ids, text, attachment)
+
+Позволяет делает рассылку сообщений пользователям.
+
+| Параметр  | Тип | Обязательный | Описание |
+| ------------- | ------------- | ------------- | ------------- |
+| peer_ids | array | Да | Список идентификаторов пользователей которым нужно отправить сообщение |
+| text | string | Да | Текст сообщения |
+| attachment | string | Нет | Прикрепление к сообщению. Например фото, видео или аудио |
+
+##### Пример:
+```javascript
+Group.sendToIds([225818028, 1, 2], 'Привет!')
+```
+
+# Объект VK.App
+Этот объект предназначен для работы с API для приложений.
+
+| Параметр  | Тип | Обязательный | Описание |
+| ------------- | ------------- | ------------- | ------------- |
+| access_token | string или array | Да | Ключ доступа к приложению или список ключей. |
+
+### VK.App.Streaming()
+Создает объект для работы с [Streaming API](https://vk.com/dev/streaming_api)
+
+##### Пример:
+```javascript
+const VK = require('vk-node-sdk')
+const App = new VK.App('APP_TOKEN')
+const Streaming = App.Streaming()
+
+// Получение новых событий
+Streaming.onListener((event) => {
+  console.log('new event', event)
+})
+
+// Добавление правил
+Streaming.addRule('vk', 2).addRule('bot', 'bot_tag')
+
+// Получение текущих правил
+Streaming.getRules((rules) => {
+  console.log(rules)
+})
+
+// Удалить все правила
+Streaming.clearRules()
+
+// Удалить одно правило
+Streaming.deleteRule(2)
+```
+
 # Контакты
 Сообщество ВКонтакте: [vk.com/nodesdk](https://vk.com/nodesdk)
-
-*За помощь в написании документации спасибо [Зуеву Олегу @nocell](https://vk.com/nocell)*

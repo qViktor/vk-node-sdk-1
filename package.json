@@ -1,0 +1,98 @@
+{
+  "_args": [
+    [
+      {
+        "raw": "vk-node-sdk",
+        "scope": null,
+        "escapedName": "vk-node-sdk",
+        "name": "vk-node-sdk",
+        "rawSpec": "",
+        "spec": "latest",
+        "type": "tag"
+      },
+      "E:\\nocell\\myaso_bot"
+    ]
+  ],
+  "_from": "vk-node-sdk@latest",
+  "_id": "vk-node-sdk@0.1.8",
+  "_inCache": true,
+  "_location": "/vk-node-sdk",
+  "_nodeVersion": "8.2.1",
+  "_npmOperationalInternal": {
+    "host": "s3://npm-registry-packages",
+    "tmp": "tmp/vk-node-sdk-0.1.8.tgz_1506870706275_0.1304661815520376"
+  },
+  "_npmUser": {
+    "name": "anton_anton",
+    "email": "devantop95@gmail.com"
+  },
+  "_npmVersion": "5.4.2",
+  "_phantomChildren": {},
+  "_requested": {
+    "raw": "vk-node-sdk",
+    "scope": null,
+    "escapedName": "vk-node-sdk",
+    "name": "vk-node-sdk",
+    "rawSpec": "",
+    "spec": "latest",
+    "type": "tag"
+  },
+  "_requiredBy": [
+    "#USER"
+  ],
+  "_resolved": "https://registry.npmjs.org/vk-node-sdk/-/vk-node-sdk-0.1.8.tgz",
+  "_shasum": "ca76f7728b0e0324e5860b7d765c1a3f4f8eff37",
+  "_shrinkwrap": null,
+  "_spec": "vk-node-sdk",
+  "_where": "E:\\nocell\\myaso_bot",
+  "author": {
+    "name": "Anton"
+  },
+  "bugs": {
+    "url": "https://github.com/AntDev95/vk-node-sdk/issues"
+  },
+  "dependencies": {
+    "websocket": "^1.0.24"
+  },
+  "description": "NodeJS Lib for VK API",
+  "devDependencies": {},
+  "directories": {},
+  "dist": {
+    "integrity": "sha512-pJWLEV6v5kaKX0vwHkWhhRztXeEiiUQX8T++L4b7Fq9M0F3Sn5rE1aVDUBzI4Op7nIO1R2fvnJgQJQthkC1kow==",
+    "shasum": "ca76f7728b0e0324e5860b7d765c1a3f4f8eff37",
+    "tarball": "https://registry.npmjs.org/vk-node-sdk/-/vk-node-sdk-0.1.8.tgz"
+  },
+  "homepage": "https://github.com/AntDev95/vk-node-sdk#readme",
+  "keywords": [
+    "vk",
+    "bot",
+    "api",
+    "vkontakte",
+    "vk-api",
+    "vk-bot",
+    "bot-vk",
+    "callback-api",
+    "vk-group",
+    "vk-sdk",
+    "вк"
+  ],
+  "license": "ISC",
+  "main": "VK.js",
+  "maintainers": [
+    {
+      "name": "anton_anton",
+      "email": "devantop95@gmail.com"
+    }
+  ],
+  "name": "vk-node-sdk",
+  "optionalDependencies": {},
+  "readme": "ERROR: No README data found!",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AntDev95/vk-node-sdk.git"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "version": "0.1.8"
+}
