@@ -3,7 +3,7 @@
 const Utils = require('./utils')
 const Message = require('./message')
 const API_URL = 'https://api.vk.com/method/'
-const API_VERSION = '5.68'
+const API_VERSION = '5.87'
 
 class API {
     constructor(tokens) {
